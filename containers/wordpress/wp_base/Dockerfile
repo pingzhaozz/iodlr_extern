@@ -20,65 +20,6 @@
 # OR OTHER DEALINGS IN THE SOFTWARE.
 #
 # SPDX-License-Identifier: MIT
-ARG PHP_VER=7.4
-
-
-# ----- php container -----
-# used for copying built php-fpm and opcache.so
-# 
-# ----- php-fpm build container -----
-FROM php:${PHP_VER}-fpm AS php-fpm
-
-ENV TZ=America/Los_Angeles
-ENV DEBIAN_FRONTEND noninteractive
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime ;\
- echo $TZ > /etc/timezone
-RUN apt-get update; \
- apt-get install -y \
- libonig-dev \
- libsqlite3-dev \
- zlib1g-dev \
- libpng-dev \
- libssl-dev \
- libxml2-dev;
-
-WORKDIR /usr/src/php
-RUN docker-php-source extract; \
-  ./configure \
-  --enable-fpm \
-  --with-mysqli \
-  --with-pdo-mysql \
-  --enable-pcntl; \
- EXTRA_CFLAGS="-g -fno-reorder-blocks-and-partition" \
- LDFLAGS="-Wl,--emit-relocs,-znow" \
- make -j; \
- cp /usr/src/php/sapi/fpm/php-fpm /php-fpm;\
- cp /usr/src/php/modules/opcache.so /opcache.so;\
- docker-php-source delete;
-
-
-# ----- siege container -----
-# 
-# build siege
-FROM ubuntu:20.04
-LABEL authors="ping.zhao@intel.com"
-ARG DEBIAN_FRONTEND="noninteractive"
-ARG TZ="America/Los_Angeles"
-ARG APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1
-ENV USERNAME="base"
-
-# Build and install siege 2.78
-RUN wget http://download.joedog.org/siege/siege-2.78.tar.gz && \
-    tar zxf siege-2.78.tar.gz
-WORKDIR /home/${USERNAME}/siege-2.78
-RUN ./utils/bootstrap && \
-    automake --add-missing && \
-    ./configure && \
-    make -j8 && \
-    sudo make uninstall && \
-    sudo make install
-WORKDIR /home/${USERNAME}
-RUN rm -rf /home/${USERNAME}/siege-2.78
 
 
 # ----- https base container -----
@@ -87,9 +28,12 @@ RUN rm -rf /home/${USERNAME}/siege-2.78
 #   WP 4.2/5.6
 #   PHP 7.4/8.0
 # --------------------------------
+
 FROM ubuntu:20.04
 ENV USERNAME="base"
 
+ARG PHP_VER=7.4
+ARG wordpressversion=4.2
 ARG DEBIAN_FRONTEND="noninteractive"
 ARG TZ="America/Los_Angeles"
 ARG APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1
@@ -133,12 +77,8 @@ RUN apt-get update && apt-get install -y \
 RUN add-apt-repository -y ppa:ondrej/php && \
     apt-get update && \
     apt-get install -y \
-    php7.4 php7.4-fpm php7.4-mysql \
-    php7.4-gd php7.4-mbstring php7.4-xml
-# update php-fpm
-COPY --from=php-fpm /php-fpm /opt/pkb/git/hhvm-perf/php-fpm
-COPY --from=php-fpm /opcache.so /opt/pkb/git/hhvm-perf/opcache.so
-
+    php${PHP_VER} php${PHP_VER}-fpm php${PHP_VER}-mysql \
+    php${PHP_VER}-gd php${PHP_VER}-mbstring php${PHP_VER}-xml
 
 # Install mariadb
 RUN apt-get install -y \
@@ -153,18 +93,28 @@ RUN useradd -rm -d /home/${USERNAME} -s /bin/bash -g root -G sudo -u 1001 ${USER
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
 
-# Build and install siege 2.78
-# intall later
-
-# Clone and install oss-performance (commit_id: 138c015)
+# Clone and install oss-performance
+# for WP5 0026641, wp4 commit_id: 138c015, note that repo doesn't has wp5
 RUN git clone https://github.com/intel/Updates-for-OSS-Performance oss-performance && \
     cd oss-performance && \
-    git checkout 138c015
+    if [ $wordpressversion = '4.2' ] ; then \
+        git checkout 138c015 ; \
+    else \
+        git checkout 0026641 && \
+        cd targets/wordpress/ && \
+        mv WordpressTarget_v5.urls WordpressTarget.urls && \
+        mv dbdump_v5.sql.gz dbdump.sql.gz; \
+    fi
 WORKDIR /home/${USERNAME}/oss-performance
 RUN wget https://getcomposer.org/installer -O composer-setup.php && \
     php composer-setup.php && \
     php composer.phar install
-
+# Download WP5.2, change the WP target from 4.2 to 5.2, replace WP4.2 database dump with WP5.2, and change URLs list, remove WP4.2
+RUN if [ $wordpressversion = '5.6' ] ; then \
+        cd /home/${USERNAME}/oss-performance/targets/wordpress && \
+        wget https://wordpress.org/wordpress-${wordpressversion}.tar.gz && \
+        sed -i 's/4.2.0/${wordpressversion}/g' WordpressTarget.php ; \
+    fi
 # Basic environment tuning
 RUN echo "soft nofile 1000000\nhard nofile 1000000" | sudo tee -a /etc/security/limits.conf
 
@@ -187,6 +137,9 @@ RUN sudo service mysql start && \
 WORKDIR /home/${USERNAME}/oss-performance
 COPY --chown=${USERNAME}:root files/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chown=${USERNAME}:root files/quickrun.sh /home/${USERNAME}/oss-performance
+RUN sed -i "s/opcache.huge_code_pages=1/opcache.huge_code_pages=0/" /home/${USERNAME}/oss-performance/conf/php.ini ;\
+sed -i "s/php-fpm7.4/php-fpm${PHP_VER}/" /home/${USERNAME}/oss-performance/quickrun.sh ;\
+    chmod +x /home/${USERNAME}/oss-performance/quickrun.sh
 RUN chmod +x /home/${USERNAME}/oss-performance/quickrun.sh
 
 
@@ -215,7 +168,7 @@ RUN git clone https://github.com/openssl/openssl.git && \
     ./config --prefix=/home/${USERNAME}/openssl_install \
              -Wl,-rpath=/home/${USERNAME}/openssl && \
      make update && \
-     make -j 10 &&  \
+     make -j &&  \
      make install
 WORKDIR /home/${USERNAME}
 RUN rm -rf /home/${USERNAME}/openssl_build
@@ -257,7 +210,7 @@ RUN wget http://download.joedog.org/siege/$SIEGE_ARCHIVE_NAME.tar.gz
 RUN tar zxf $SIEGE_ARCHIVE_NAME.tar.gz
 WORKDIR /home/${USERNAME}/$SIEGE_ARCHIVE_NAME
 RUN ./configure --with-ssl=/usr/bin/openssl && \
-    make -j8 && \
+    make -j && \
     sudo make uninstall && \
     sudo make install
 WORKDIR /home/${USERNAME}

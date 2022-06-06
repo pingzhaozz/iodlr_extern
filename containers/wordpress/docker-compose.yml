@@ -28,7 +28,8 @@ services:
       context: ./wp_base
       dockerfile: Dockerfile
       args:
-          PHP_VER: 7.4.29
+          PHP_VER: 7.4
+          wordpressversion: 4.2
     image: wp4.2_php7.4_base_https
 
   wp4.2_php7.4_opt_https:
@@ -38,3 +39,12 @@ services:
       args:
           baseimage: wp4.2_php7.4_base_https
     image: wp4.2_php7.4_opt_https
+
+  wp5.6_php8.0_base_https:
+    build:
+      context: ./wp_base
+      dockerfile: Dockerfile
+      args:
+          PHP_VER: 8.0
+          wordpressversion: 5.6
+    image: wp5.6_php8.0_base_https
