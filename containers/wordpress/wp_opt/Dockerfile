@@ -226,9 +226,6 @@ MAINTAINER "ping.zhao@intel.com"
 
 ARG INSTALL_DIR
 
-# Optimization: Set environment variable to have zend use large pages
-ENV USE_ZEND_ALLOC_HUGE_PAGES="$zendlp" 
-
 RUN sudo -E apt-get update && sudo -E apt-get install -y \
     software-properties-common \
     gcc-10 \
@@ -268,11 +265,7 @@ ARG mariadbconf=1s
 RUN if [ "$query" = "1" ] ; then sudo cp /home/${USERNAME}/${mariadbconf}-bkm.j2 /etc/mysql/my.cnf ; fi
 
 
-#USER root
-#RUN echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" | tee -a /etc/sudoers
-
-
-# Binary copy openssl, siege, AYNCH NGINX with QAT, 
+# Binary copy AYNCH NGINX with QAT, 
 COPY  --from=dep-components --chown=${USERNAME}:root $INSTALL_DIR /
 
 
