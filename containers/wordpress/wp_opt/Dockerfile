@@ -2,6 +2,12 @@ ARG baseimage
 ARG PHP_VER
 ARG INSTALL_DIR="/pkg_install"
 
+ARG IPP_CRYPTO_TAG=ippcp_2021.3
+ARG QAT_ENGINE_TAG=v0.6.1
+ARG ASYNCH_NGINX_TAG=v0.4.7
+ARG IPSEC_MB_TAG=v0.55
+
+
 # ----- TEMP container -----
 # used for copying built php-fpm and opcache.so
 # for bolting.
@@ -158,10 +164,9 @@ RUN apt-get update && apt-get install -y \
 
 # Build/Install IPP cyrypto library for the multi-buffer support
 WORKDIR /home/${USERNAME}/temp
-ARG IPP_CRYPTO_TAG=ippcp_2021.3
-RUN git clone https://github.com/intel/ipp-crypto.git && \
+ARG IPP_CRYPTO_TAG
+RUN git clone --depth 1 -b $IPP_CRYPTO_TAG https://github.com/intel/ipp-crypto.git && \
     cd ipp-crypto && \
-    git checkout $IPP_CRYPTO_TAG && \
     cd sources/ippcp/crypto_mb && \
     CXX=g++-10 CC=gcc-10 cmake . -B./build -DOPENSSL_INCLUDE_DIR=/home/${USERNAME}/openssl_install/include/ -DOPENSSL_LIBRARIES=/home/${USERNAME}/openssl_install/ -DOPENSSL_ROOT_DIR=/home/${USERNAME}/temp/openssl/ && \
     cd build && \
@@ -172,7 +177,7 @@ RUN git clone https://github.com/intel/ipp-crypto.git && \
 #    cp -r /home/${USERNAME}/crypto_mb $INSTALL_DIR/
 
 # Build/install IPSec_MB library
-ARG IPSEC_MB_TAG=v0.55
+ARG IPSEC_MB_TAG
 WORKDIR /home/${USERNAME}/temp
 RUN mkdir ipsec && \
     git clone --depth 1 -b $IPSEC_MB_TAG https://github.com/intel/intel-ipsec-mb.git && \
@@ -183,7 +188,7 @@ RUN mkdir ipsec && \
 
 
 # Build/Install QAT engine
-ARG QAT_ENGINE_TAG=v0.6.1 
+ARG QAT_ENGINE_TAG
 WORKDIR /home/${USERNAME}/temp
 RUN git clone --depth 1 -b $QAT_ENGINE_TAG https://github.com/intel/QAT_Engine.git qat_engine && \
     cd qat_engine && \
@@ -197,7 +202,7 @@ RUN git clone --depth 1 -b $QAT_ENGINE_TAG https://github.com/intel/QAT_Engine.g
     make -j && \
     make install
 
-ARG ASYNCH_NGINX_TAG='v0.4.7'
+ARG ASYNCH_NGINX_TAG
 # Build/Install AYNCH NGINX, no QAT
 WORKDIR /home/${USERNAME}/nginx_build
 RUN rm -rf nginx && \
@@ -278,16 +283,16 @@ COPY --from=bolter --chown=pkb:pkb /opt/opcache.so /home/${USERNAME}/oss-perform
 
 
 
-ARG IPP_CRYPTO_TAG=ippcp_2021.3
-ARG QAT_ENGINE_TAG=v0.6.1
-ARG ASYNCH_NGINX_TAG=v0.4.3
+ARG IPP_CRYPTO_TAG
+ARG QAT_ENGINE_TAG
+ARG ASYNCH_NGINX_TAG
+ARG IPSEC_MB_TAG
 
 # Optimization: Build and install iodlr huge pages library (commit_id: 01f4985) for use with mariadb
 RUN if [ "$iodlrlp" = "1" ] ; then \
     cd /home/${USERNAME} && \
-    git clone https://github.com/intel/iodlr && \
+    git clone --depth 1 -b 01f4985 https://github.com/intel/iodlr && \
     cd iodlr && \
-    git checkout 01f4985 && \
     cd large_page-c && \
     make -f Makefile.preload && \
     sudo cp liblppreload.so /usr/lib/ && \
@@ -301,16 +306,12 @@ RUN if [ "$query" = "1" ] ; then sudo cp /home/${USERNAME}/${mariadbconf}-bkm.j2
 
 USER root
 
-RUN apt-get update && \
-    apt-get install -y libtool nasm
-
 # Build/Install IPP cyrypto library for the multi-buffer support
 WORKDIR /home/${USERNAME}/temp
-RUN git clone https://github.com/intel/ipp-crypto.git && \
+RUN git clone --depth 1 -b $IPP_CRYPTO_TAG https://github.com/intel/ipp-crypto.git && \
     cd ipp-crypto && \
-    git checkout $IPP_CRYPTO_TAG && \
     cd sources/ippcp/crypto_mb && \
-    CXX=g++-9 CC=gcc-9 cmake . -B./build -DOPENSSL_INCLUDE_DIR=/home/${USERNAME}/openssl_install/include/ -DOPENSSL_LIBRARIES=/home/${USERNAME}/openssl_install/ -DOPENSSL_ROOT_DIR=/home/${USERNAME}/temp/openssl/ && \
+    CXX=g++-10 CC=gcc-10 cmake . -B./build -DOPENSSL_INCLUDE_DIR=/home/${USERNAME}/openssl_install/include/ -DOPENSSL_LIBRARIES=/home/${USERNAME}/openssl_install/ -DOPENSSL_ROOT_DIR=/home/${USERNAME}/temp/openssl/ && \
     cd build && \
     make -j && \
     mkdir -p /home/${USERNAME}/crypto_mb/lib && \
@@ -318,21 +319,18 @@ RUN git clone https://github.com/intel/ipp-crypto.git && \
     ln -s /home/${USERNAME}/temp/ipp-crypto/sources/ippcp/crypto_mb/include /home/${USERNAME}/crypto_mb/include
 
 # Build/install IPSec_MB library
-ARG IPSEC_MB_TAG=v0.55
 WORKDIR /home/${USERNAME}/temp
 RUN rm -rf ipsec intel-ipsec-mb && \
     mkdir ipsec && \
-    git clone https://github.com/intel/intel-ipsec-mb.git && \
+    git clone --depth 1 -b $IPSEC_MB_TAG https://github.com/intel/intel-ipsec-mb.git && \
     cd intel-ipsec-mb/ && \
-    git checkout $IPSEC_MB_TAG && \
     make -j && \
     make install PREFIX=/home/${USERNAME}/temp/ipsec
 
 # Build/Install QAT engine 
 WORKDIR /home/${USERNAME}/temp
-RUN git clone  https://github.com/intel/QAT_Engine.git qat_engine && \
+RUN git clone --depth 1 -b $QAT_ENGINE_TAG https://github.com/intel/QAT_Engine.git qat_engine && \
     cd qat_engine && \
-    git checkout $QAT_ENGINE_TAG && \
     ./autogen.sh && \
     ./configure \
         --enable-multibuff_offload \
@@ -346,7 +344,7 @@ RUN git clone  https://github.com/intel/QAT_Engine.git qat_engine && \
 
 WORKDIR /home/${USERNAME}/oss-performance
 
-RUN ln -s /home/${USERNAME}/temp/ipp-crypto/sources/ippcp/crypto_mb/build/bin/libcrypto_mb.so.11.1 /usr/lib/libcrypto_mb.so.11
+RUN cp /home/${USERNAME}/temp/ipp-crypto/sources/ippcp/crypto_mb/build/bin/libcrypto_mb.so.11.1 /usr/lib/libcrypto_mb.so.11
 COPY --chown=${USERNAME}:root files/nginx.conf.in /home/${USERNAME}/oss-performance/conf/nginx
 COPY --chown=${USERNAME}:root files/php-opt.ini /home/${USERNAME}/oss-performance/conf/php.ini
 USER ${USERNAME}
